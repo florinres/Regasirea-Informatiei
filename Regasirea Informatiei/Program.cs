@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Security;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Xml;
@@ -16,12 +17,108 @@ namespace Regasirea_Informatiei
         static void Main(string[] args)
         {
             string projectPath = Environment.CurrentDirectory;
-            string resourcesPath = projectPath + "\\Reuters\\Reuters_34\\Training";
+            string resourcesPath = projectPath + "\\Reuters\\Reuters_7083";
             string[] files = Directory.GetFiles(resourcesPath);
-            readFiles(files);
-            printGlobalWord();
-            saveToFile();
-            saveWordAppearancesMatrix();
+
+            readFiles(files);                  
+            pruneInfrequentWords(minDocuments: 5); 
+            printGlobalWord();                 
+            saveToFile();                      
+        }
+
+
+
+        private static void pruneInfrequentWords(int minDocuments = 5)
+        {
+            Dictionary<string, int> wordDocumentCount = new Dictionary<string, int>();
+
+            foreach (var fileEntry in vectorOfWords)
+            {
+                var wordIndices = fileEntry.Value.Keys;
+                foreach (int wordIndex in wordIndices)
+                {
+                    string word = uniqueGlobalWords[wordIndex];
+                    if (!wordDocumentCount.ContainsKey(word))
+                        wordDocumentCount[word] = 0;
+                    wordDocumentCount[word]++;
+                }
+            }
+
+            var prunedWords = wordDocumentCount.Where(kvp => kvp.Value >= minDocuments)
+                                              .Select(kvp => kvp.Key)
+                                              .ToList();
+
+            var indexMapping = new Dictionary<int, int>();
+            for (int i = 0; i < uniqueGlobalWords.Count; i++)
+            {
+                if (prunedWords.Contains(uniqueGlobalWords[i]))
+                {
+                    indexMapping[i] = prunedWords.IndexOf(uniqueGlobalWords[i]);
+                }
+            }
+
+            uniqueGlobalWords = prunedWords;
+            var newVector = new Dictionary<int, Dictionary<int, int>>();
+
+            foreach (var fileEntry in vectorOfWords)
+            {
+                int fileKey = fileEntry.Key;
+                newVector[fileKey] = new Dictionary<int, int>();
+
+                foreach (var kvp in fileEntry.Value)
+                {
+                    int oldWordIndex = kvp.Key;
+                    if (indexMapping.ContainsKey(oldWordIndex))
+                    {
+                        int newWordIndex = indexMapping[oldWordIndex];
+                        newVector[fileKey][newWordIndex] = kvp.Value;
+                    }
+                }
+            }
+
+            vectorOfWords = newVector;
+            try
+            {
+                var rareWords = wordDocumentCount.Where(kvp => kvp.Value < minDocuments)
+                               .Select(kvp => kvp.Key)
+                               .ToList();
+                File.WriteAllLines("rare_words.txt", rareWords); 
+                Console.WriteLine($"Discarded {rareWords.Count} rare words.");
+            }
+            catch (SecurityException e)
+            {
+                throw e;
+            }
+        }
+
+        private static void entropyTest()
+        {
+            List<double> procent = new List<double>();
+            List<string> attributes = new List<string>();
+            entropyReadFileWithAttributes(attributes, procent);
+        }
+
+        private static void entropyReadFileWithAttributes(List<string> attributes, List<double> procent)
+        {
+            string attributesPath = Environment.CurrentDirectory + "\\entropyTest.txt";
+            try
+            {
+                string[] lines = File.ReadAllLines(attributesPath);
+                foreach (string line in lines)
+                {
+                    if (line.Contains("@attribute"))
+                    {
+                        string[] splittedLine = line.Split(' ');
+                        string attribute = splittedLine[1];
+                        attributes.Add(attribute);
+                        procent.Add(Double.Parse(splittedLine[2]));
+                    }
+                }
+            }
+            catch (FileNotFoundException e)
+            {
+                throw e;
+            }
         }
 
         private static void saveToFile()
@@ -30,17 +127,16 @@ namespace Regasirea_Informatiei
             string uniqueWordsFilePath = Path.Combine(currentDirectory, "uniqueGlobalWords.txt");
             string wordFrequencyFilePath = Path.Combine(currentDirectory, "vectorOfWords.txt");
 
-            // Save uniqueGlobalWords to file
             try
             {
-                File.WriteAllLines(uniqueWordsFilePath, uniqueGlobalWords);
+                var formattedWords = uniqueGlobalWords.Select(word => $"@attribute {word}");
+                File.WriteAllLines(uniqueWordsFilePath, formattedWords);
             }
             catch (IOException e)
             {
                 Console.WriteLine($"Error writing to {uniqueWordsFilePath}: {e.Message}");
             }
 
-            // Save vectorOfWords to file
             try
             {
                 using (StreamWriter writer = new StreamWriter(wordFrequencyFilePath))
@@ -62,8 +158,8 @@ namespace Regasirea_Informatiei
 
         private static void printGlobalWord()
         {
-           Console.WriteLine("Unique global words: " + uniqueGlobalWords.Count);
-           Console.WriteLine("Word frequency dictionary size: " + vectorOfWords.Count);
+            Console.WriteLine("Unique global words: " + uniqueGlobalWords.Count);
+            Console.WriteLine("Word frequency dictionary size: " + vectorOfWords.Count);
         }
 
         private static void readFiles(string[] files)
@@ -109,31 +205,25 @@ namespace Regasirea_Informatiei
 
             foreach (string word in titleWordsSplitted.Concat(textWordsSplitted))
             {
-                if (word.Length == 1)
-                {
-                    continue;
-                }
+                string lowerCaseWord = word.ToLower();
+                string cleanedWord = porterStemmer.StemWord(lowerCaseWord);
+                cleanedWord = Regex.Replace(cleanedWord, @"[^a-zA-Z]", "");
 
-                string cleanedWord = porterStemmer.StemWord(word.ToLower());
-                cleanedWord = regex.Replace(cleanedWord, "");
-                
-                if (stopWords.Contains(word))
+                if (cleanedWord.Length < 3 || cleanedWord.Length > 20 ||
+                    stopWords.Contains(cleanedWord) ||
+                    string.IsNullOrEmpty(cleanedWord) ||
+                    ContainsOnlyNumbers(cleanedWord) ||
+                    cleanedWord.EndsWith("ing") || cleanedWord.EndsWith("tion"))
                 {
                     continue;
                 }
-
-                if (string.IsNullOrEmpty(cleanedWord) || ContainsOnlyNumbers(cleanedWord))
-                {
-                    continue;
-                }
-                
-                cleanedWord = removeNumbers(cleanedWord);
 
                 if (!uniqueGlobalWords.Contains(cleanedWord))
                 {
                     uniqueGlobalWords.Add(cleanedWord);
-                    addToWordFrequencyDictionary(cleanedWord, ctFisier);
                 }
+                addToWordFrequencyDictionary(cleanedWord, ctFisier);
+                Console.WriteLine(cleanedWord);
             }
         }
 
@@ -142,15 +232,15 @@ namespace Regasirea_Informatiei
             bool numbersBefore = false;
             bool numbersAfter = false;
 
-            foreach(char c in cleanedWord)
+            foreach (char c in cleanedWord)
             {
-                if(Char.IsDigit(c))
+                if (Char.IsDigit(c))
                 {
                     numbersBefore = true;
                     break;
                 }
             }
-            for(char c = cleanedWord.Last(); c >= 0; c--)
+            for (char c = cleanedWord.Last(); c >= 0; c--)
             {
                 if (Char.IsDigit(c))
                 {
@@ -188,38 +278,19 @@ namespace Regasirea_Informatiei
 
         private static void addToWordFrequencyDictionary(string cleanedWord, int fileKey)
         {
-            Dictionary<int, int> valuePairs = new Dictionary<int, int>();
-            //if (!vectorOfWords.ContainsKey(fileKey))
-            //{
-            //    valuePairs = new Dictionary<int, int>();
-            //    valuePairs.Add(uniqueGlobalWords.IndexOf(cleanedWord), 1);
-            //    vectorOfWords.Add(fileKey, new Dictionary<int, int>());
-            //    return;
-            //}
-
-            //valuePairs = vectorOfWords[fileKey];
-            //if (valuePairs.ContainsValue(uniqueGlobalWords.IndexOf(cleanedWord)))
-            //{
-            //    return;
-            //}
-            //else
-            //{
-            //    valuePairs.Add(uniqueGlobalWords.IndexOf(cleanedWord), 1);
-            //}
-            //vectorOfWords[fileKey] = valuePairs;
-            if (!vectorOfWords.ContainsKey(fileKey)){
-                vectorOfWords.Add(fileKey, valuePairs);
-            }
-            valuePairs = vectorOfWords[fileKey];
-            int globalWordIndex = uniqueGlobalWords.IndexOf(cleanedWord);
-            if(!valuePairs.ContainsValue(globalWordIndex))
+            if (!vectorOfWords.ContainsKey(fileKey))
             {
-                valuePairs.Add(globalWordIndex, 1);
-                vectorOfWords[fileKey] = valuePairs;
+                vectorOfWords[fileKey] = new Dictionary<int, int>();
+            }
+            var valuePairs = vectorOfWords[fileKey];
+            int globalWordIndex = uniqueGlobalWords.IndexOf(cleanedWord);
+            if (!valuePairs.ContainsKey(globalWordIndex))
+            {
+                valuePairs[globalWordIndex] = 1;
             }
             else
             {
-                return;
+                valuePairs[globalWordIndex]++;
             }
         }
 
@@ -248,6 +319,7 @@ namespace Regasirea_Informatiei
                 return null;
             }
         }
+
         private static void saveWordAppearancesMatrix()
         {
             string currentDirectory = Environment.CurrentDirectory;
