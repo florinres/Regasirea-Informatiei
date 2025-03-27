@@ -12,7 +12,7 @@ namespace Regasirea_Informatiei
     class Program
     {
         public static List<string> uniqueGlobalWords = new List<string>();
-        public static Dictionary<int, Dictionary<int, int>> wordFrequencyDictionary = new Dictionary<int, Dictionary<int, int>>();
+        public static Dictionary<int, Dictionary<int, int>> vectorOfWords = new Dictionary<int, Dictionary<int, int>>();
         static void Main(string[] args)
         {
             string projectPath = Environment.CurrentDirectory;
@@ -21,13 +21,14 @@ namespace Regasirea_Informatiei
             readFiles(files);
             printGlobalWord();
             saveToFile();
+            saveWordAppearancesMatrix();
         }
 
         private static void saveToFile()
         {
             string currentDirectory = Environment.CurrentDirectory;
             string uniqueWordsFilePath = Path.Combine(currentDirectory, "uniqueGlobalWords.txt");
-            string wordFrequencyFilePath = Path.Combine(currentDirectory, "wordFrequencyDictionary.txt");
+            string wordFrequencyFilePath = Path.Combine(currentDirectory, "vectorOfWords.txt");
 
             // Save uniqueGlobalWords to file
             try
@@ -39,12 +40,12 @@ namespace Regasirea_Informatiei
                 Console.WriteLine($"Error writing to {uniqueWordsFilePath}: {e.Message}");
             }
 
-            // Save wordFrequencyDictionary to file
+            // Save vectorOfWords to file
             try
             {
                 using (StreamWriter writer = new StreamWriter(wordFrequencyFilePath))
                 {
-                    foreach (var fileEntry in wordFrequencyDictionary)
+                    foreach (var fileEntry in vectorOfWords)
                     {
                         int fileKey = fileEntry.Key;
                         var wordFrequencies = fileEntry.Value;
@@ -62,7 +63,7 @@ namespace Regasirea_Informatiei
         private static void printGlobalWord()
         {
            Console.WriteLine("Unique global words: " + uniqueGlobalWords.Count);
-           Console.WriteLine("Word frequency dictionary size: " + wordFrequencyDictionary.Count);
+           Console.WriteLine("Word frequency dictionary size: " + vectorOfWords.Count);
         }
 
         private static void readFiles(string[] files)
@@ -188,15 +189,15 @@ namespace Regasirea_Informatiei
         private static void addToWordFrequencyDictionary(string cleanedWord, int fileKey)
         {
             Dictionary<int, int> valuePairs = new Dictionary<int, int>();
-            //if (!wordFrequencyDictionary.ContainsKey(fileKey))
+            //if (!vectorOfWords.ContainsKey(fileKey))
             //{
             //    valuePairs = new Dictionary<int, int>();
             //    valuePairs.Add(uniqueGlobalWords.IndexOf(cleanedWord), 1);
-            //    wordFrequencyDictionary.Add(fileKey, new Dictionary<int, int>());
+            //    vectorOfWords.Add(fileKey, new Dictionary<int, int>());
             //    return;
             //}
 
-            //valuePairs = wordFrequencyDictionary[fileKey];
+            //valuePairs = vectorOfWords[fileKey];
             //if (valuePairs.ContainsValue(uniqueGlobalWords.IndexOf(cleanedWord)))
             //{
             //    return;
@@ -205,16 +206,16 @@ namespace Regasirea_Informatiei
             //{
             //    valuePairs.Add(uniqueGlobalWords.IndexOf(cleanedWord), 1);
             //}
-            //wordFrequencyDictionary[fileKey] = valuePairs;
-            if (!wordFrequencyDictionary.ContainsKey(fileKey)){
-                wordFrequencyDictionary.Add(fileKey, valuePairs);
+            //vectorOfWords[fileKey] = valuePairs;
+            if (!vectorOfWords.ContainsKey(fileKey)){
+                vectorOfWords.Add(fileKey, valuePairs);
             }
-            valuePairs = wordFrequencyDictionary[fileKey];
+            valuePairs = vectorOfWords[fileKey];
             int globalWordIndex = uniqueGlobalWords.IndexOf(cleanedWord);
             if(!valuePairs.ContainsValue(globalWordIndex))
             {
                 valuePairs.Add(globalWordIndex, 1);
-                wordFrequencyDictionary[fileKey] = valuePairs;
+                vectorOfWords[fileKey] = valuePairs;
             }
             else
             {
@@ -245,6 +246,44 @@ namespace Regasirea_Informatiei
             {
                 Console.WriteLine(e.Message + "null value!");
                 return null;
+            }
+        }
+        private static void saveWordAppearancesMatrix()
+        {
+            string currentDirectory = Environment.CurrentDirectory;
+            string matrixFilePath = Path.Combine(currentDirectory, "wordAppearancesMatrix.txt");
+
+            try
+            {
+                using (StreamWriter writer = new StreamWriter(matrixFilePath))
+                {
+                    // Write header
+                    writer.Write("File\\Word");
+                    foreach (var word in uniqueGlobalWords)
+                    {
+                        writer.Write($"\t{word}");
+                    }
+                    writer.WriteLine();
+
+                    // Write each file's word appearance vector
+                    foreach (var fileEntry in vectorOfWords)
+                    {
+                        int fileKey = fileEntry.Key;
+                        var wordFrequencies = fileEntry.Value;
+                        writer.Write($"F{fileKey}");
+
+                        foreach (var word in uniqueGlobalWords)
+                        {
+                            int wordIndex = uniqueGlobalWords.IndexOf(word);
+                            writer.Write($"\t{(wordFrequencies.ContainsKey(wordIndex) ? 1 : 0)}");
+                        }
+                        writer.WriteLine();
+                    }
+                }
+            }
+            catch (IOException e)
+            {
+                Console.WriteLine($"Error writing to {matrixFilePath}: {e.Message}");
             }
         }
     }
